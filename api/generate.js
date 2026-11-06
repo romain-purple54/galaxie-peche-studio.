@@ -27,6 +27,7 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           model: "gpt-4.1-mini",
+          tools: [{ type: "web_search" }],
           instructions: `Tu es un expert en matériel de pêche
 et rédacteur pour GALAXIE PÊCHE.
 
