@@ -9,7 +9,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { barcode, productName } = req.body || {};
+    const { ean: barcode, name: productName } = req.body || {};
 
     if (!barcode && !productName) {
       return res.status(400).json({
