@@ -1,16 +1,15 @@
 
-function nettoyer(texte) {
-  return String(texte || "")
-    .replace(/【[^】]+】/g, "")
+function nettoyer(value) {
+  return String(value || "")
+    .replace(/【[^】]*】/g, "")
     .replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/g, "$1")
-    .replace(/https?:\/\/[^\s)]+/g, "")
-    .replace(/^\s*(Accroche|Caractéristiques techniques|Conclusion|Hashtags)\s*:\s*$/gim, "")
-    .replace(/[ \t]{2,}/g, " ")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/^\s*(Accroche|Conclusion|Hashtags)\s*:?\s*$/gim, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-function texteReponse(data) {
+function lireTexte(data) {
   if (data.output_text) return data.output_text;
 
   return (data.output || [])
@@ -20,10 +19,9 @@ function texteReponse(data) {
     .join("\n");
 }
 
-function extraireJSON(texte) {
+function lireJSON(texte) {
   const propre = String(texte || "")
-    .replace(/```json/gi, "")
-    .replace(/```/g, "")
+    .replace(/```(?:json)?/gi, "")
     .trim();
 
   try {
@@ -32,12 +30,75 @@ function extraireJSON(texte) {
     const debut = propre.indexOf("{");
     const fin = propre.lastIndexOf("}");
 
-    if (debut >= 0 && fin > debut) {
-      return JSON.parse(propre.slice(debut, fin + 1));
+    if (debut < 0 || fin <= debut) {
+      throw new Error("Réponse JSON invalide.");
     }
 
-    throw new Error("Réponse impossible à interpréter.");
+    return JSON.parse(propre.slice(debut, fin + 1));
   }
+}
+
+function urlSure(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function extraireSources(data) {
+  const sources = new Map();
+
+  function ajouter(url, titre) {
+    const lien = urlSure(url);
+    if (lien && !sources.has(lien)) {
+      sources.set(lien, {
+        url: lien,
+        titre: String(titre || "").slice(0, 150)
+      });
+    }
+  }
+
+  for (const item of data.output || []) {
+    for (const source of item.action?.sources || []) {
+      ajouter(source.url, source.title);
+    }
+
+    for (const contenu of item.content || []) {
+      for (const annotation of contenu.annotations || []) {
+        if (annotation.type === "url_citation") {
+          ajouter(annotation.url, annotation.title);
+        }
+      }
+    }
+  }
+
+  return [...sources.values()];
+}
+
+async function demanderOpenAI(apiKey, payload) {
+  const response = await fetch(
+    "https://api.openai.com/v1/responses",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error?.message || "Erreur du service OpenAI."
+    );
+  }
+
+  return data;
 }
 
 export default async function handler(req, res) {
@@ -45,7 +106,7 @@ export default async function handler(req, res) {
 
   if (req.method !== "POST") {
     return res.status(405).json({
-      error: "Méthode non autorisée"
+      error: "Méthode non autorisée."
     });
   }
 
@@ -53,7 +114,7 @@ export default async function handler(req, res) {
 
   if (!apiKey) {
     return res.status(500).json({
-      error: "Clé OpenAI absente dans Vercel."
+      error: "Clé OPENAI_API_KEY absente sur Vercel."
     });
   }
 
@@ -70,182 +131,252 @@ export default async function handler(req, res) {
 
     if (!nom && !ean) {
       return res.status(400).json({
-        error: "Indique un produit ou un code-barres."
+        error: "Indique un nom ou un code-barres."
       });
     }
 
-    const recherche = [nom, ean]
+    const produitRecherche = [nom, ean]
       .filter(Boolean)
-      .join(" - ");
+      .join(" | ");
 
-    const instructions = `
-Tu es responsable de la communication du magasin
-GALAXIE PÊCHE, spécialisé dans les articles de pêche.
+    // ÉTAPE 1 : RECHERCHE DOCUMENTAIRE
 
-Tu dois rechercher et vérifier les informations
-techniques d'un produit avant de rédiger.
+    const recherche = await demanderOpenAI(apiKey, {
+      model: "gpt-4.1-mini",
+      tools: [{
+        type: "web_search_preview",
+        search_context_size: "medium"
+      }],
+      tool_choice: "auto",
+      input: `
+Recherche la fiche technique exacte de ce produit :
+${produitRecherche}
 
-PRIORITÉS ABSOLUES :
-1. Exactitude technique.
-2. Identification de la référence exacte.
-3. Utilité concrète pour les pêcheurs.
-4. Communication professionnelle et naturelle.
+Priorité au site officiel du fabricant.
 
-RECHERCHE :
-- Privilégie le site officiel du fabricant.
-- Vérifie les caractéristiques de la variante exacte.
-- Ne confonds jamais deux générations de produits.
-- Ne confonds jamais deux tailles de moulinets.
-- Ne déduis pas une caractéristique non confirmée.
-- Si une donnée est incertaine, ne la mentionne pas.
-- N'invente ni stock, ni promotion, ni disponibilité.
-- Ne présente pas une information comme vérifiée
-  si aucune source fiable ne la confirme.
+Identifie :
+- le nom commercial exact ;
+- la référence fabricant ;
+- les caractéristiques techniques ;
+- les techniques de pêche adaptées.
 
-RÉDACTION :
-- Français naturel et irréprochable.
-- Ton professionnel, technique et commercial.
-- Une petite pointe d'humour subtile.
-- Pas de blagues lourdes.
-- Pas de superlatifs excessifs.
-- Pas de prix.
-- Pas de liens dans les publications.
-- Pas de citations bibliographiques dans les textes.
-- Pas de titres artificiels comme "Accroche".
-- Pas de caractéristiques inventées.
-- Utilise les unités françaises.
-- Relie les caractéristiques aux techniques de pêche.
-- Explique quels pêcheurs peuvent utiliser ce produit.
-- Termine par une question pertinente.
-- Utilise les hashtags avec modération.
-- Évite les promesses sur les algorithmes.
+Attention aux variantes, générations et tailles.
 
-FACEBOOK :
-- 120 à 180 mots environ.
-- Accroche intéressante dès la première phrase.
-- Description technique accessible.
-- Applications concrètes en situation de pêche.
-- Paragraphes courts.
-- Quelques emojis pertinents.
-- Invitation naturelle à commenter.
+Pour chaque caractéristique, indique sa source.
+Ne considère pas une donnée comme vérifiée
+si elle n'est pas explicitement confirmée.
 
-INSTAGRAM :
-- 65 à 110 mots environ.
-- Accroche courte et percutante.
-- Texte aéré et agréable sur mobile.
-- 2 à 4 caractéristiques seulement si vérifiées.
-- Applications de pêche concrètes.
-- 3 à 5 hashtags ciblés.
-- Une touche d'humour légère.
+Présente un rapport documentaire structuré.
+Indique les incertitudes.
+Ne rédige aucune publication commerciale.
+`,
+      max_output_tokens: 1800
+    });
 
-Réponds UNIQUEMENT avec un objet JSON valide :
+    const rapport = lireTexte(recherche);
+    const sourcesRecherche = extraireSources(recherche);
+
+    if (!rapport.trim()) {
+      throw new Error("Recherche documentaire vide.");
+    }
+
+    // ÉTAPE 2 : EXTRACTION ET CONTRÔLE
+
+    const analyse = await demanderOpenAI(apiKey, {
+      model: "gpt-4.1-mini",
+      instructions: `
+Tu es un contrôleur technique spécialisé
+dans le matériel de pêche.
+
+Tu analyses exclusivement le rapport fourni.
+
+N'invente aucune information.
+Ne complète pas les lacunes par tes connaissances.
+
+Une caractéristique est confirmée uniquement
+si le rapport donne une preuve explicite
+et une source identifiable.
+
+En cas de contradiction ou d'ambiguïté :
+exclus la caractéristique.
+
+Le nom et la référence doivent correspondre
+exactement à la variante recherchée.
+
+Réponds uniquement avec un objet JSON valide :
 
 {
-  "produit": "nom exact du produit",
-  "reference": "référence ou chaîne vide",
-  "facebook": "publication Facebook complète",
-  "instagram": "publication Instagram complète",
+  "produit": "nom exact ou chaîne vide",
+  "reference": "référence exacte ou chaîne vide",
+  "identification_confirmee": false,
   "caracteristiques": [
-    "caractéristique vérifiée 1",
-    "caractéristique vérifiée 2"
-  ],
-  "sources": [
     {
-      "titre": "nom de la source",
-      "url": "https://..."
+      "texte": "caractéristique",
+      "source_url": "https://..."
     }
   ],
-  "avertissement": "précision éventuelle"
+  "applications": [
+    "application de pêche justifiée"
+  ],
+  "incertitudes": [
+    "information non confirmée"
+  ]
 }
+`,
+      input: `
+PRODUIT RECHERCHÉ :
+${produitRecherche}
 
-Les sources sont séparées des publications.
-Si le produit est ambigu, indique-le dans
-avertissement et évite toute donnée incertaine.
-`;
+RAPPORT DOCUMENTAIRE :
+${rapport}
 
-    const response = await fetch(
-      "https://api.openai.com/v1/responses",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: "gpt-4.1-mini",
-          instructions,
-          input: `Recherche ce produit : ${recherche}`,
-          tools: [
-            {
-              type: "web_search_preview",
-              search_context_size: "medium"
-            }
-          ],
-          max_output_tokens: 2200
-        })
-      }
+SOURCES REPÉRÉES :
+${JSON.stringify(sourcesRecherche)}
+`,
+      max_output_tokens: 1400
+    });
+
+    const fiche = lireJSON(lireTexte(analyse));
+
+    const sourcesParUrl = new Map(
+      sourcesRecherche.map(source => [
+        source.url,
+        source
+      ])
     );
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        data.error?.message ||
-        "Erreur lors de la recherche du produit."
-      );
-    }
-
-    const contenu = texteReponse(data);
-
-    if (!contenu) {
-      throw new Error(
-        "Aucun texte reçu du service OpenAI."
-      );
-    }
-
-    const resultat = extraireJSON(contenu);
-
-    const facebook = nettoyer(resultat.facebook);
-    const instagram = nettoyer(resultat.instagram);
-
-    if (!facebook || !instagram) {
-      throw new Error(
-        "Les deux publications n'ont pas été générées."
-      );
-    }
-
-    const caracteristiques = Array.isArray(
-      resultat.caracteristiques
+    const caracteristiques = (
+      Array.isArray(fiche.caracteristiques)
+        ? fiche.caracteristiques
+        : []
     )
-      ? resultat.caracteristiques
-          .map(nettoyer)
-          .filter(Boolean)
+      .filter(item => {
+        if (!item || typeof item !== "object") {
+          return false;
+        }
+
+        const lien = urlSure(item.source_url);
+
+        return (
+          Boolean(item.texte) &&
+          Boolean(lien) &&
+          sourcesParUrl.has(lien)
+        );
+      })
+      .map(item => nettoyer(item.texte));
+
+    const applications = Array.isArray(fiche.applications)
+      ? fiche.applications.map(nettoyer).filter(Boolean)
       : [];
 
-    const sources = Array.isArray(resultat.sources)
-      ? resultat.sources.filter(source => {
-          try {
-            return (
-              new URL(source.url).protocol === "https:"
-            );
-          } catch {
-            return false;
-          }
-        })
+    const incertitudes = Array.isArray(fiche.incertitudes)
+      ? fiche.incertitudes.map(nettoyer).filter(Boolean)
       : [];
+
+    const identifie = fiche.identification_confirmee === true;
+
+    const produit = identifie
+      ? String(fiche.produit || nom || ean)
+      : String(nom || ean);
+
+    const reference = identifie
+      ? String(fiche.reference || "")
+      : "";
+
+    // ÉTAPE 3 : RÉDACTION COMMERCIALE
+
+    let facebook = "";
+    let instagram = "";
+
+    if (identifie && caracteristiques.length > 0) {
+      const redaction = await demanderOpenAI(apiKey, {
+        model: "gpt-4.1-mini",
+        instructions: `
+Tu rédiges pour GALAXIE PÊCHE,
+magasin spécialisé dans les articles de pêche.
+
+Objectif :
+deux publications commerciales distinctes.
+
+STYLE :
+- Professionnel et techniquement exact.
+- Ton naturel, dynamique et accessible.
+- Une pointe d'humour subtile.
+- Accroche : "NOUVEAUTÉ EN STOCK".
+- Pas de prix.
+- Pas de promotions inventées.
+- Pas de liens ni de citations.
+- Pas de rubriques artificielles.
+- Pas de caractéristiques non fournies.
+- Pas de promesses exagérées.
+- Ne confonds pas les techniques de pêche.
+
+FACEBOOK :
+120 à 170 mots environ.
+Paragraphes aérés.
+Bénéfices concrets pour les pêcheurs.
+Question finale pertinente.
+Quelques emojis.
+
+INSTAGRAM :
+65 à 100 mots environ.
+Accroche efficace.
+Texte court et rythmé.
+3 à 5 hashtags pertinents.
+Question finale.
+
+Utilise UNIQUEMENT les données fournies.
+Ne crée aucun chiffre supplémentaire.
+
+Réponds uniquement avec ce JSON :
+
+{
+  "facebook": "texte complet",
+  "instagram": "texte complet"
+}
+`,
+        input: JSON.stringify({
+          produit,
+          reference,
+          caracteristiques,
+          applications
+        }),
+        max_output_tokens: 1300
+      });
+
+      const textes = lireJSON(lireTexte(redaction));
+
+      facebook = nettoyer(textes.facebook);
+      instagram = nettoyer(textes.instagram);
+    }
+
+    const avertissements = [...incertitudes];
+
+    if (!identifie) {
+      avertissements.unshift(
+        "Référence exacte non confirmée."
+      );
+    }
+
+    if (!caracteristiques.length) {
+      avertissements.push(
+        "Aucune caractéristique suffisamment documentée."
+      );
+    }
 
     return res.status(200).json({
-      produit: resultat.produit || nom || ean,
-      reference: resultat.reference || "",
+      produit,
+      reference,
       facebook,
       instagram,
       caracteristiques,
-      sources,
-      avertissement: resultat.avertissement || ""
+      sources: sourcesRecherche,
+      avertissement: avertissements.join(" "),
+      identification_confirmee: identifie
     });
 
   } catch (error) {
-    console.error("GALAXIE PÊCHE :", error.message);
+    console.error("GALAXIE PÊCHE :", error);
 
     return res.status(500).json({
       error: error.message ||
