@@ -7,7 +7,7 @@
 <title>GALAXIE PÊCHE Studio</title>
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:#101018;color:white;font:16px system-ui}
+body{margin:0;background:#101018;color:#fff;font:16px system-ui}
 main{max-width:720px;margin:auto;padding:20px}
 h1{color:#c69aff;margin-bottom:4px}
 h2{font-size:19px}
@@ -28,15 +28,24 @@ textarea{min-height:280px;resize:vertical}
 img{max-width:100%;border-radius:12px;margin-top:12px}
 a{color:#c69aff;overflow-wrap:anywhere}
 #status{white-space:pre-wrap}
-#sources a,#photoLinks a{display:block;margin:9px 0}
+#sources a,#variantSources a{display:block;margin:9px 0}
 .hidden{display:none}
 .notice{color:#ffcf8b}
+.variant-item{
+ display:flex;align-items:flex-start;gap:12px;
+ padding:12px;margin:9px 0;background:#282838;
+ border:1px solid #45455c;border-radius:10px;
+ cursor:pointer
+}
+.variant-item input{width:auto;margin:4px 0}
+.variant-item strong{display:block}
+.variant-item small{display:block;margin-top:5px}
 </style>
 </head>
 <body>
 <main>
 <h1>🎣 GALAXIE PÊCHE Studio</h1>
-<p>Vos publications professionnelles, prêtes pour les réseaux sociaux.</p>
+<p>Des publications professionnelles adaptées à chaque référence.</p>
 
 <div class="card">
 <label for="photo">Photo personnelle du produit (facultative)</label>
@@ -47,31 +56,29 @@ a{color:#c69aff;overflow-wrap:anywhere}
 <input id="ean" placeholder="Ex. 1234567890123">
 
 <label for="name">Nom du produit</label>
-<input id="name" placeholder="Ex. Shimano Stella FK 2500">
+<input id="name" placeholder="Ex. Shimano Stella FK">
 
-<label for="variant">Variante exacte du produit</label>
-<select id="variant">
-<option value="">Modèle standard / À préciser</option>
-<option value="1000">Taille 1000</option>
-<option value="2000">Taille 2000</option>
-<option value="2500">Taille 2500</option>
-<option value="2500 HG">Taille 2500 HG</option>
-<option value="2500 XG">Taille 2500 XG</option>
-<option value="3000">Taille 3000</option>
-<option value="3000 HG">Taille 3000 HG</option>
-<option value="4000">Taille 4000</option>
-<option value="4000 XG">Taille 4000 XG</option>
-<option value="5000">Taille 5000</option>
-<option value="AUTRE">Autre variante</option>
-</select>
+<button id="searchVariants" type="button">
+Rechercher les modèles disponibles
+</button>
 
-<div id="otherVariantBox" class="hidden">
-<label for="otherVariant">Préciser la variante</label>
-<input id="otherVariant" placeholder="Ex. 6000 XG, 2,70 m, 20-60 g...">
+<p id="status" role="status"></p>
 </div>
 
-<button id="generate" type="button">Créer les publications</button>
-<p id="status" role="status"></p>
+<div id="variantCard" class="card hidden">
+<h2>Choisir la référence exacte</h2>
+<p>Sélectionne le modèle correspondant à ton produit.</p>
+<div id="variantList"></div>
+
+<label for="manualVariant">Ou saisir une référence précise</label>
+<input id="manualVariant" placeholder="Ex. STELLA 2500S FK">
+
+<button id="generate" type="button">
+Créer les publications
+</button>
+
+<h2>Sources de la recherche</h2>
+<div id="variantSources"></div>
 </div>
 
 <div id="results" class="hidden">
@@ -81,7 +88,7 @@ a{color:#c69aff;overflow-wrap:anywhere}
 <p id="warnings" class="notice"></p>
 
 <div class="tabs">
-<button id="facebookTab" type="button" class="active">Facebook</button>
+<button id="facebookTab" class="active" type="button">Facebook</button>
 <button id="instagramTab" type="button">Instagram</button>
 </div>
 
@@ -91,10 +98,8 @@ a{color:#c69aff;overflow-wrap:anywhere}
 </div>
 
 <div class="card">
-<h2>Caractéristiques techniques vérifiées</h2>
+<h2>Caractéristiques techniques documentées</h2>
 <ul id="facts"></ul>
-<h2>Applications de pêche</h2>
-<ul id="applications"></ul>
 <h2>Sources consultées</h2>
 <div id="sources"></div>
 </div>
@@ -102,7 +107,6 @@ a{color:#c69aff;overflow-wrap:anywhere}
 <div class="card">
 <h2>Photos du produit</h2>
 <p id="photoStatus"></p>
-<div id="photoLinks"></div>
 <img id="selectedPhoto" hidden alt="Photo du produit">
 </div>
 </div>
@@ -113,13 +117,9 @@ const $=id=>document.getElementById(id);
 
 let posts={facebook:"",instagram:""};
 let active="facebook";
-
-$("variant").onchange=()=>{
- $("otherVariantBox").classList.toggle(
-  "hidden",
-  $("variant").value!=="AUTRE"
- );
-};
+let variants=[];
+let searchedName="";
+let searchedEan="";
 
 $("photo").onchange=()=>{
  const file=$("photo").files[0];
@@ -142,158 +142,202 @@ function showPost(platform){
 $("facebookTab").onclick=()=>showPost("facebook");
 $("instagramTab").onclick=()=>showPost("instagram");
 
-function addLinks(container,items,kind){
+function addLinks(container,items){
  container.replaceChildren();
 
  for(const item of items){
-  const url=kind==="photo"
-   ?item.source||item.url
-   :item.url;
-
+  const url=item.url;
   if(typeof url!=="string"||!url.startsWith("https://"))continue;
 
   const a=document.createElement("a");
   a.href=url;
   a.target="_blank";
   a.rel="noopener noreferrer";
-
-  a.textContent=kind==="photo"
-   ?"Voir la source et les droits : "+(item.license||"À vérifier")
-   :(item.title||item.titre||url);
-
+  a.textContent=item.titre||item.title||url;
   container.appendChild(a);
  }
 }
 
-function addItems(container,items){
+function showVariants(items){
+ const container=$("variantList");
  container.replaceChildren();
 
- for(const item of items){
-  const li=document.createElement("li");
-  li.textContent=typeof item==="string"
-   ?item
-   :item.texte||"";
-
-  if(li.textContent)container.appendChild(li);
+ if(!items.length){
+  const p=document.createElement("p");
+  p.textContent="Aucune variante documentée trouvée. Tu peux saisir une référence exacte ci-dessous.";
+  container.appendChild(p);
+  return;
  }
+
+ items.forEach((item,index)=>{
+  const label=document.createElement("label");
+  label.className="variant-item";
+
+  const radio=document.createElement("input");
+  radio.type="radio";
+  radio.name="selectedVariant";
+  radio.value=String(index);
+
+  const details=document.createElement("span");
+  const title=document.createElement("strong");
+  title.textContent=item.nom||"Modèle";
+
+  const reference=document.createElement("small");
+  reference.textContent=item.reference
+   ?"Référence : "+item.reference
+   :"Référence fabricant non précisée";
+
+  const description=document.createElement("small");
+  description.textContent=item.description||"";
+
+  details.append(title,reference,description);
+  label.append(radio,details);
+  container.appendChild(label);
+ });
+
 }
 
-$("generate").onclick=async()=>{
- const btn=$("generate");
+$("searchVariants").onclick=async()=>{
  const name=$("name").value.trim();
  const ean=$("ean").value.trim();
-
- let variant=$("variant").value;
-
- if(variant==="AUTRE"){
-  variant=$("otherVariant").value.trim();
- }
 
  if(!name&&!ean){
   $("status").textContent="Indique un nom ou un code-barres.";
   return;
  }
 
- if($("variant").value==="AUTRE"&&!variant){
-  $("status").textContent="Précise la variante du produit.";
-  return;
- }
-
+ const btn=$("searchVariants");
  btn.disabled=true;
- $("status").textContent="Recherche technique et rédaction en cours...";
+ $("status").textContent="Recherche des variantes sur Internet...";
+ $("variantCard").classList.add("hidden");
  $("results").classList.add("hidden");
+ $("manualVariant").value="";
 
  try{
-  const nomComplet=[
-   name,
-   variant && !name.toLowerCase().includes(variant.toLowerCase())
-    ?variant
-    :""
-  ].filter(Boolean).join(" ");
-
   const response=await fetch("/api/generate",{
    method:"POST",
    headers:{"Content-Type":"application/json"},
    body:JSON.stringify({
-    name:nomComplet,
-    ean,
-    variant
+    action:"variantes",
+    name,
+    ean
    })
   });
 
   const data=await response.json();
 
-  if(!response.ok){
-   throw Error(data.error||"Erreur serveur");
-  }
+  if(!response.ok)throw Error(data.error||"Erreur serveur");
+
+  searchedName=name;
+  searchedEan=ean;
+  variants=Array.isArray(data.variantes)?data.variantes:[];
+
+  showVariants(variants);
+  addLinks($("variantSources"),data.sources||[]);
+  $("variantCard").classList.remove("hidden");
+
+  $("status").textContent=variants.length
+   ?variants.length+" variante(s) trouvée(s). Sélectionne la bonne référence."
+   :"Aucune variante confirmée automatiquement. Saisis la référence exacte si tu la connais.";
+
+ }catch(error){
+  $("status").textContent="Erreur : "+error.message;
+ }finally{
+  btn.disabled=false;
+ }
+};
+
+$("generate").onclick=async()=>{
+ const manual=$("manualVariant").value.trim();
+ const selected=document.querySelector(
+  'input[name="selectedVariant"]:checked'
+ );
+
+ let variante=manual;
+
+ if(!variante&&selected){
+  const item=variants[Number(selected.value)];
+  variante=item.reference||item.nom||"";
+ }
+
+ if(!variante){
+  $("status").textContent="Sélectionne ou saisis une référence exacte.";
+  return;
+ }
+
+ if(
+  $("name").value.trim()!==searchedName ||
+  $("ean").value.trim()!==searchedEan
+ ){
+  $("status").textContent="Le produit a changé. Relance la recherche des modèles.";
+  return;
+ }
+
+ const btn=$("generate");
+ btn.disabled=true;
+ $("results").classList.add("hidden");
+ $("status").textContent="Vérification technique et rédaction en cours...";
+
+ try{
+  const response=await fetch("/api/generate",{
+   method:"POST",
+   headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({
+    name:searchedName,
+    ean:searchedEan,
+    variante
+   })
+  });
+
+  const data=await response.json();
+  if(!response.ok)throw Error(data.error||"Erreur serveur");
 
   posts={
    facebook:data.facebook||"",
    instagram:data.instagram||""
   };
-
   active="facebook";
   $("publication").value=posts.facebook;
   $("facebookTab").classList.add("active");
   $("instagramTab").classList.remove("active");
 
-  const product=data.product||data.produit||nomComplet||"Produit";
-  const reference=data.reference||"";
+  $("product").textContent=[
+   data.produit||searchedName,
+   data.reference||""
+  ].filter(Boolean).join(" — ");
 
-  $("product").textContent=product+
-   (reference?" — "+reference:"");
+  $("verification").textContent=data.identification_confirmee
+   ?"Référence identifiée dans la recherche."
+   :"Référence exacte non confirmée.";
 
-  const verified=data.verified===true||
-   data.identification_confirmee===true;
+  $("warnings").textContent=data.avertissement||"";
 
-  $("verification").textContent=verified
-   ?"Référence identifiée."
-   :"Référence à confirmer : vérifiez les caractéristiques avant publication.";
+  $("facts").replaceChildren();
+  for(const fact of data.caracteristiques||[]){
+   const li=document.createElement("li");
+   li.textContent=typeof fact==="string"?fact:fact.texte||"";
+   $("facts").appendChild(li);
+  }
 
-  $("warnings").textContent=data.avertissement||
-   data.warning||"";
-
-  addItems(
-   $("facts"),
-   data.technicalFacts||data.caracteristiques||[]
-  );
-
-  addItems(
-   $("applications"),
-   data.applications||[]
-  );
-
-  addLinks(
-   $("sources"),
-   data.sources||[],
-   "source"
-  );
-
-  addLinks(
-   $("photoLinks"),
-   data.photosToReview||[],
-   "photo"
-  );
+  addLinks($("sources"),data.sources||[]);
 
   const uploaded=$("photo").files[0];
-
   if(uploaded){
    $("selectedPhoto").src=URL.createObjectURL(uploaded);
    $("selectedPhoto").hidden=false;
    $("photoStatus").textContent=
-    "Photo importée : vérifiez que vous disposez des droits d'utilisation.";
+    "Photo importée : vérifie que tu disposes des droits d'utilisation.";
   }else{
    $("selectedPhoto").hidden=true;
-   $("photoStatus").textContent=data.photoStatus||
-    "Aucune photo autorisée confirmée.";
+   $("photoStatus").textContent="Aucune photo autorisée confirmée.";
   }
 
   $("results").classList.remove("hidden");
+  $("status").textContent=posts.facebook||posts.instagram
+   ?"Publications prêtes !"
+   :"Référence ou données techniques insuffisamment confirmées. Consulte les avertissements.";
 
-  $("status").textContent=
-   posts.facebook||posts.instagram
-    ?"Publications prêtes !"
-    :"Recherche terminée : référence ou caractéristiques insuffisamment confirmées.";
+  $("results").scrollIntoView({behavior:"smooth"});
 
  }catch(error){
   $("status").textContent="Erreur : "+error.message;
