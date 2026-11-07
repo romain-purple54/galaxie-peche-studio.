@@ -13,7 +13,7 @@ h1{color:#c69aff;margin-bottom:4px}
 h2{font-size:19px}
 p,small{color:#ccc}
 label{display:block;margin:18px 0 7px;font-weight:600}
-input,select,textarea,button{
+input,textarea,button{
  width:100%;padding:13px;border-radius:10px;
  border:1px solid #555;background:#242430;
  color:white;font:inherit
@@ -40,15 +40,20 @@ a{color:#c69aff;overflow-wrap:anywhere}
 .variant-item input{width:auto;margin:4px 0}
 .variant-item strong{display:block}
 .variant-item small{display:block;margin-top:5px}
+#visualCanvas{
+ display:block;width:100%;height:auto;
+ border-radius:12px;margin-top:12px;
+ background:#151520
+}
 </style>
 </head>
 <body>
 <main>
 <h1>🎣 GALAXIE PÊCHE Studio</h1>
-<p>Des publications professionnelles adaptées à chaque référence.</p>
+<p>Publications et visuels professionnels pour vos réseaux sociaux.</p>
 
 <div class="card">
-<label for="photo">Photo personnelle du produit (facultative)</label>
+<label for="photo">Photo du produit (facultative)</label>
 <input id="photo" type="file" accept="image/*">
 <img id="preview" alt="Photo importée" hidden>
 
@@ -61,7 +66,6 @@ a{color:#c69aff;overflow-wrap:anywhere}
 <button id="searchVariants" type="button">
 Rechercher les modèles disponibles
 </button>
-
 <p id="status" role="status"></p>
 </div>
 
@@ -70,8 +74,9 @@ Rechercher les modèles disponibles
 <p>Sélectionne le produit correspondant.</p>
 <div id="variantList"></div>
 
-<label for="manualVariant">Ou saisir une référence précise</label>
-<input id="manualVariant" placeholder="Ex. Purple Products Bouillettes Equinoxx 20 mm">
+<label for="manualVariant">Ou saisir le nom exact du produit</label>
+<input id="manualVariant"
+ placeholder="Ex. Purple Products Bouillettes Equinoxx 20 mm">
 
 <button id="generate" type="button">
 Créer les publications
@@ -105,9 +110,24 @@ Créer les publications
 </div>
 
 <div class="card">
-<h2>Photos du produit</h2>
+<h2>Créer le visuel GALAXIE PÊCHE</h2>
+<p>Visuel carré 1080 × 1080 pixels, prêt pour les réseaux sociaux.</p>
 <p id="photoStatus"></p>
-<img id="selectedPhoto" hidden alt="Photo du produit">
+
+<label for="visualTitle">Nom à afficher sur le visuel</label>
+<input id="visualTitle" maxlength="120">
+
+<button id="createVisual" type="button">
+Créer le visuel
+</button>
+
+<canvas id="visualCanvas" width="1080" height="1080"
+ class="hidden"></canvas>
+
+<button id="downloadVisual" type="button" class="hidden">
+Télécharger le visuel PNG
+</button>
+<p id="visualStatus" role="status"></p>
 </div>
 </div>
 </main>
@@ -120,11 +140,20 @@ let active="facebook";
 let variants=[];
 let searchedName="";
 let searchedEan="";
+let photoUrl="";
+let selectedProduct="";
 
 $("photo").onchange=()=>{
  const file=$("photo").files[0];
+
+ if(photoUrl){
+  URL.revokeObjectURL(photoUrl);
+  photoUrl="";
+ }
+
  if(file){
-  $("preview").src=URL.createObjectURL(file);
+  photoUrl=URL.createObjectURL(file);
+  $("preview").src=photoUrl;
   $("preview").hidden=false;
  }else{
   $("preview").hidden=true;
@@ -164,7 +193,8 @@ function showVariants(items){
 
  if(!items.length){
   const p=document.createElement("p");
-  p.textContent="Aucune variante documentée trouvée. Tu peux saisir une référence exacte ci-dessous.";
+  p.textContent=
+   "Aucune variante documentée trouvée. Tu peux saisir le nom exact ci-dessous.";
   container.appendChild(p);
   return;
  }
@@ -216,11 +246,7 @@ $("searchVariants").onclick=async()=>{
   const response=await fetch("/api/generate",{
    method:"POST",
    headers:{"Content-Type":"application/json"},
-   body:JSON.stringify({
-    action:"variantes",
-    name,
-    ean
-   })
+   body:JSON.stringify({action:"variantes",name,ean})
   });
 
   const data=await response.json();
@@ -237,7 +263,7 @@ $("searchVariants").onclick=async()=>{
 
   $("status").textContent=variants.length
    ?variants.length+" variante(s) trouvée(s). Sélectionne la bonne référence."
-   :"Aucune variante confirmée automatiquement. Saisis le nom exact du produit si tu le connais.";
+   :"Aucune variante confirmée automatiquement. Saisis le nom exact.";
 
  }catch(error){
   $("status").textContent="Erreur : "+error.message;
@@ -256,12 +282,9 @@ $("generate").onclick=async()=>{
 
  if(!variante&&selected){
   const item=variants[Number(selected.value)];
-
   variante=[
    item.nom,
-   item.reference
-    ?"Référence fabricant : "+item.reference
-    :""
+   item.reference?"Référence fabricant : "+item.reference:""
   ].filter(Boolean).join(" — ");
  }
 
@@ -307,8 +330,10 @@ $("generate").onclick=async()=>{
   $("facebookTab").classList.add("active");
   $("instagramTab").classList.remove("active");
 
+  selectedProduct=data.produit||searchedName||variante;
+
   $("product").textContent=[
-   data.produit||searchedName,
+   selectedProduct,
    data.reference||""
   ].filter(Boolean).join(" — ");
 
@@ -328,23 +353,20 @@ $("generate").onclick=async()=>{
 
   addLinks($("sources"),data.sources||[]);
 
-  const uploaded=$("photo").files[0];
+  $("visualTitle").value=selectedProduct;
+  $("visualCanvas").classList.add("hidden");
+  $("downloadVisual").classList.add("hidden");
+  $("visualStatus").textContent="";
 
-  if(uploaded){
-   $("selectedPhoto").src=URL.createObjectURL(uploaded);
-   $("selectedPhoto").hidden=false;
-   $("photoStatus").textContent=
-    "Photo importée : vérifie que tu disposes des droits d'utilisation.";
-  }else{
-   $("selectedPhoto").hidden=true;
-   $("photoStatus").textContent="Aucune photo autorisée confirmée.";
-  }
+  $("photoStatus").textContent=photoUrl
+   ?"Photo personnelle chargée. Vérifie tes droits d'utilisation."
+   :"Aucune photo chargée. Le visuel pourra être créé sans photo.";
 
   $("results").classList.remove("hidden");
 
   $("status").textContent=posts.facebook||posts.instagram
    ?"Publications prêtes !"
-   :"Référence ou données techniques insuffisamment confirmées. Consulte les avertissements.";
+   :"Recherche terminée. Consulte les avertissements.";
 
   $("results").scrollIntoView({behavior:"smooth"});
 
@@ -363,6 +385,177 @@ $("copy").onclick=async()=>{
  }catch{
   $("status").textContent="Sélectionne le texte pour le copier.";
  }
+};
+
+function chargerImage(src){
+ return new Promise((resolve,reject)=>{
+  const img=new Image();
+  img.onload=()=>resolve(img);
+  img.onerror=()=>reject(new Error("Impossible de charger l'image : "+src));
+  img.src=src;
+ });
+}
+
+function rectangleArrondi(ctx,x,y,w,h,r){
+ ctx.beginPath();
+ ctx.roundRect(x,y,w,h,r);
+}
+
+function texteMultiligne(ctx,texte,maxWidth,maxLignes){
+ const mots=texte.split(/\s+/).filter(Boolean);
+ const lignes=[];
+ let ligne="";
+
+ for(const mot of mots){
+  const essai=ligne?ligne+" "+mot:mot;
+  if(ctx.measureText(essai).width>maxWidth&&ligne){
+   lignes.push(ligne);
+   ligne=mot;
+  }else{
+   ligne=essai;
+  }
+ }
+
+ if(ligne)lignes.push(ligne);
+
+ if(lignes.length>maxLignes){
+  const resultat=lignes.slice(0,maxLignes);
+  let derniere=resultat[maxLignes-1];
+
+  while(derniere&&ctx.measureText(derniere+"…").width>maxWidth){
+   derniere=derniere.slice(0,-1);
+  }
+
+  resultat[maxLignes-1]=derniere+"…";
+  return resultat;
+ }
+
+ return lignes;
+}
+
+$("createVisual").onclick=async()=>{
+ const btn=$("createVisual");
+ const canvas=$("visualCanvas");
+ const ctx=canvas.getContext("2d");
+ const titre=$("visualTitle").value.trim()||selectedProduct;
+
+ if(!titre){
+  $("visualStatus").textContent="Indique un nom de produit.";
+  return;
+ }
+
+ btn.disabled=true;
+ $("downloadVisual").classList.add("hidden");
+ $("visualStatus").textContent="Création du visuel...";
+
+ try{
+  ctx.clearRect(0,0,1080,1080);
+
+  const fond=ctx.createLinearGradient(0,0,1080,1080);
+  fond.addColorStop(0,"#101018");
+  fond.addColorStop(0.6,"#242036");
+  fond.addColorStop(1,"#4a2579");
+  ctx.fillStyle=fond;
+  ctx.fillRect(0,0,1080,1080);
+
+  ctx.fillStyle="#8b4dd0";
+  ctx.fillRect(0,0,1080,16);
+
+  ctx.fillStyle="#ffffff";
+  ctx.font="bold 55px system-ui";
+  ctx.textAlign="center";
+  ctx.fillText("NOUVEAUTÉ EN STOCK",540,95);
+
+  // Zone principale réservée au produit
+  ctx.fillStyle="#ffffff";
+  rectangleArrondi(ctx,65,155,950,635,28);
+  ctx.fill();
+
+  if(photoUrl){
+   const photo=await chargerImage(photoUrl);
+   const maxW=880;
+   const maxH=570;
+   const ratio=Math.min(maxW/photo.width,maxH/photo.height);
+   const w=photo.width*ratio;
+   const h=photo.height*ratio;
+
+   ctx.drawImage(photo,540-w/2,465-h/2,w,h);
+  }else{
+   ctx.fillStyle="#e9e3f0";
+   ctx.font="bold 42px system-ui";
+   ctx.textAlign="center";
+   ctx.fillText("GALAXIE PÊCHE",540,440);
+   ctx.font="28px system-ui";
+   ctx.fillText("Visuel produit",540,495);
+  }
+
+  ctx.fillStyle="#ffffff";
+  ctx.font="bold 48px system-ui";
+  ctx.textAlign="center";
+
+  const lignes=texteMultiligne(ctx,titre,930,2);
+  const debut=845;
+
+  lignes.forEach((ligne,index)=>{
+   ctx.fillText(ligne,540,debut+index*62);
+  });
+
+  // Logo officiel chargé depuis le dépôt GitHub
+  const logo=await chargerImage("/Logo.svg");
+  const largeurMax=320;
+  const hauteurMax=125;
+  const ratio=Math.min(
+   largeurMax/logo.width,
+   hauteurMax/logo.height
+  );
+
+  const w=logo.width*ratio;
+  const h=logo.height*ratio;
+
+  ctx.fillStyle="#ffffff";
+  rectangleArrondi(ctx,360,944,360,115,20);
+  ctx.fill();
+
+  ctx.drawImage(
+   logo,
+   540-w/2,
+   1001-h/2,
+   w,
+   h
+  );
+
+  $("visualCanvas").classList.remove("hidden");
+  $("downloadVisual").classList.remove("hidden");
+  $("visualStatus").textContent="Visuel créé ! Tu peux le télécharger.";
+
+ }catch(error){
+  $("visualStatus").textContent=
+   "Impossible de créer le visuel : "+error.message+
+   ". Vérifie que Logo.svg est bien à la racine du dépôt.";
+ }finally{
+  btn.disabled=false;
+ }
+};
+
+$("downloadVisual").onclick=()=>{
+ const canvas=$("visualCanvas");
+
+ canvas.toBlob(blob=>{
+  if(!blob){
+   $("visualStatus").textContent="Erreur lors de l'export PNG.";
+   return;
+  }
+
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="galaxie-peche-nouveaute.png";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  setTimeout(()=>URL.revokeObjectURL(url),30000);
+ },"image/png");
 };
 </script>
 </body>
