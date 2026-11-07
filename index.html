@@ -7,18 +7,18 @@
 <title>GALAXIE PÊCHE Studio</title>
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:#101018;color:#fff;font:16px system-ui}
+body{margin:0;background:#101018;color:white;font:16px system-ui}
 main{max-width:720px;margin:auto;padding:20px}
 h1{color:#c69aff;margin-bottom:4px}
 h2{font-size:19px}
 p,small{color:#ccc}
 label{display:block;margin:18px 0 7px;font-weight:600}
-input,textarea,button{
+input,select,textarea,button{
  width:100%;padding:13px;border-radius:10px;
  border:1px solid #555;background:#242430;
  color:white;font:inherit
 }
-button{background:#753cc8;border:0;margin-top:12px;font-weight:700}
+button{background:#753cc8;border:0;margin-top:12px;font-weight:700;cursor:pointer}
 button:disabled{opacity:.5}
 textarea{min-height:280px;resize:vertical}
 .card{background:#1b1b27;padding:16px;border-radius:14px;margin-top:18px}
@@ -28,8 +28,9 @@ textarea{min-height:280px;resize:vertical}
 img{max-width:100%;border-radius:12px;margin-top:12px}
 a{color:#c69aff;overflow-wrap:anywhere}
 #status{white-space:pre-wrap}
-#sources a{display:block;margin:9px 0}
+#sources a,#photoLinks a{display:block;margin:9px 0}
 .hidden{display:none}
+.notice{color:#ffcf8b}
 </style>
 </head>
 <body>
@@ -46,9 +47,30 @@ a{color:#c69aff;overflow-wrap:anywhere}
 <input id="ean" placeholder="Ex. 1234567890123">
 
 <label for="name">Nom du produit</label>
-<input id="name" placeholder="Ex. Shimano Stella 2500">
+<input id="name" placeholder="Ex. Shimano Stella FK 2500">
 
-<button id="generate">Créer les publications</button>
+<label for="variant">Variante exacte du produit</label>
+<select id="variant">
+<option value="">Modèle standard / À préciser</option>
+<option value="1000">Taille 1000</option>
+<option value="2000">Taille 2000</option>
+<option value="2500">Taille 2500</option>
+<option value="2500 HG">Taille 2500 HG</option>
+<option value="2500 XG">Taille 2500 XG</option>
+<option value="3000">Taille 3000</option>
+<option value="3000 HG">Taille 3000 HG</option>
+<option value="4000">Taille 4000</option>
+<option value="4000 XG">Taille 4000 XG</option>
+<option value="5000">Taille 5000</option>
+<option value="AUTRE">Autre variante</option>
+</select>
+
+<div id="otherVariantBox" class="hidden">
+<label for="otherVariant">Préciser la variante</label>
+<input id="otherVariant" placeholder="Ex. 6000 XG, 2,70 m, 20-60 g...">
+</div>
+
+<button id="generate" type="button">Créer les publications</button>
 <p id="status" role="status"></p>
 </div>
 
@@ -56,18 +78,23 @@ a{color:#c69aff;overflow-wrap:anywhere}
 <div class="card">
 <h2 id="product"></h2>
 <p id="verification"></p>
+<p id="warnings" class="notice"></p>
+
 <div class="tabs">
-<button id="facebookTab" class="active">Facebook</button>
-<button id="instagramTab">Instagram</button>
+<button id="facebookTab" type="button" class="active">Facebook</button>
+<button id="instagramTab" type="button">Instagram</button>
 </div>
+
 <label for="publication">Publication à copier ou modifier</label>
 <textarea id="publication"></textarea>
-<button id="copy">Copier la publication</button>
+<button id="copy" type="button">Copier la publication</button>
 </div>
 
 <div class="card">
 <h2>Caractéristiques techniques vérifiées</h2>
 <ul id="facts"></ul>
+<h2>Applications de pêche</h2>
+<ul id="applications"></ul>
 <h2>Sources consultées</h2>
 <div id="sources"></div>
 </div>
@@ -83,8 +110,16 @@ a{color:#c69aff;overflow-wrap:anywhere}
 
 <script>
 const $=id=>document.getElementById(id);
+
 let posts={facebook:"",instagram:""};
 let active="facebook";
+
+$("variant").onchange=()=>{
+ $("otherVariantBox").classList.toggle(
+  "hidden",
+  $("variant").value!=="AUTRE"
+ );
+};
 
 $("photo").onchange=()=>{
  const file=$("photo").files[0];
@@ -109,17 +144,37 @@ $("instagramTab").onclick=()=>showPost("instagram");
 
 function addLinks(container,items,kind){
  container.replaceChildren();
+
  for(const item of items){
-  const url=kind==="photo"?item.source:item.url;
-  if(!url||!url.startsWith("https://"))continue;
+  const url=kind==="photo"
+   ?item.source||item.url
+   :item.url;
+
+  if(typeof url!=="string"||!url.startsWith("https://"))continue;
+
   const a=document.createElement("a");
   a.href=url;
   a.target="_blank";
   a.rel="noopener noreferrer";
+
   a.textContent=kind==="photo"
-   ? "Voir la source et les droits : "+(item.license||"À vérifier")
-   : (item.title||url);
+   ?"Voir la source et les droits : "+(item.license||"À vérifier")
+   :(item.title||item.titre||url);
+
   container.appendChild(a);
+ }
+}
+
+function addItems(container,items){
+ container.replaceChildren();
+
+ for(const item of items){
+  const li=document.createElement("li");
+  li.textContent=typeof item==="string"
+   ?item
+   :item.texte||"";
+
+  if(li.textContent)container.appendChild(li);
  }
 }
 
@@ -128,8 +183,19 @@ $("generate").onclick=async()=>{
  const name=$("name").value.trim();
  const ean=$("ean").value.trim();
 
+ let variant=$("variant").value;
+
+ if(variant==="AUTRE"){
+  variant=$("otherVariant").value.trim();
+ }
+
  if(!name&&!ean){
   $("status").textContent="Indique un nom ou un code-barres.";
+  return;
+ }
+
+ if($("variant").value==="AUTRE"&&!variant){
+  $("status").textContent="Précise la variante du produit.";
   return;
  }
 
@@ -138,45 +204,84 @@ $("generate").onclick=async()=>{
  $("results").classList.add("hidden");
 
  try{
+  const nomComplet=[
+   name,
+   variant && !name.toLowerCase().includes(variant.toLowerCase())
+    ?variant
+    :""
+  ].filter(Boolean).join(" ");
+
   const response=await fetch("/api/generate",{
    method:"POST",
    headers:{"Content-Type":"application/json"},
-   body:JSON.stringify({name,ean})
+   body:JSON.stringify({
+    name:nomComplet,
+    ean,
+    variant
+   })
   });
 
   const data=await response.json();
-  if(!response.ok)throw Error(data.error||"Erreur serveur");
+
+  if(!response.ok){
+   throw Error(data.error||"Erreur serveur");
+  }
 
   posts={
    facebook:data.facebook||"",
    instagram:data.instagram||""
   };
+
   active="facebook";
   $("publication").value=posts.facebook;
   $("facebookTab").classList.add("active");
   $("instagramTab").classList.remove("active");
 
-  $("product").textContent=data.product||"Produit";
-  $("verification").textContent=data.verified
+  const product=data.product||data.produit||nomComplet||"Produit";
+  const reference=data.reference||"";
+
+  $("product").textContent=product+
+   (reference?" — "+reference:"");
+
+  const verified=data.verified===true||
+   data.identification_confirmee===true;
+
+  $("verification").textContent=verified
    ?"Référence identifiée."
    :"Référence à confirmer : vérifiez les caractéristiques avant publication.";
 
-  $("facts").replaceChildren();
-  for(const fact of data.technicalFacts||[]){
-   const li=document.createElement("li");
-   li.textContent=fact;
-   $("facts").appendChild(li);
-  }
+  $("warnings").textContent=data.avertissement||
+   data.warning||"";
 
-  addLinks($("sources"),data.sources||[],"source");
-  addLinks($("photoLinks"),data.photosToReview||[],"photo");
+  addItems(
+   $("facts"),
+   data.technicalFacts||data.caracteristiques||[]
+  );
+
+  addItems(
+   $("applications"),
+   data.applications||[]
+  );
+
+  addLinks(
+   $("sources"),
+   data.sources||[],
+   "source"
+  );
+
+  addLinks(
+   $("photoLinks"),
+   data.photosToReview||[],
+   "photo"
+  );
 
   const uploaded=$("photo").files[0];
+
   if(uploaded){
    $("selectedPhoto").src=URL.createObjectURL(uploaded);
    $("selectedPhoto").hidden=false;
    $("photoStatus").textContent=
-    "Photo importée : à utiliser uniquement si vous disposez des droits.";
+    "Photo importée : vérifiez que vous disposez des droits d'utilisation.";
   }else{
    $("selectedPhoto").hidden=true;
    $("photoStatus").textContent=data.photoStatus||
@@ -184,7 +289,12 @@ $("generate").onclick=async()=>{
   }
 
   $("results").classList.remove("hidden");
-  $("status").textContent="Publications prêtes !";
+
+  $("status").textContent=
+   posts.facebook||posts.instagram
+    ?"Publications prêtes !"
+    :"Recherche terminée : référence ou caractéristiques insuffisamment confirmées.";
+
  }catch(error){
   $("status").textContent="Erreur : "+error.message;
  }finally{
