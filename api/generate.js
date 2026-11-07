@@ -1,12 +1,44 @@
 
+function cleanText(value) {
+  return String(value || "")
+    .replace(/\[([^\]]+)\]\(https?:\/\/[^)\s]+\)/g, "")
+    .replace(/https?:\/\/[^\s)]+/g, "")
+    .replace(/【[^】]+】/g, "")
+    .replace(/^\s*(Accroche|Caractéristiques techniques|Conclusion|Hashtags)\s*:?\s*$/gim, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function validUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function parseResult(text) {
+  const cleaned = text
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  return JSON.parse(cleaned);
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Méthode non autorisée" });
+    return res.status(405).json({
+      error: "Méthode non autorisée"
+    });
   }
 
   res.setHeader("Cache-Control", "no-store");
 
   const key = process.env.OPENAI_API_KEY;
+
   if (!key) {
     return res.status(500).json({
       error: "Clé OpenAI absente sur Vercel"
@@ -15,115 +47,152 @@ export default async function handler(req, res) {
 
   try {
     const body = req.body || {};
-    const barcode = String(body.ean || body.barcode || "")
-      .trim().slice(0, 80);
-    const productName = String(body.name || body.productName || "")
+
+    const name = String(body.name || "")
       .trim().slice(0, 200);
 
-    if (!barcode && !productName) {
+    const ean = String(body.ean || "")
+      .trim().slice(0, 80);
+
+    if (!name && !ean) {
       return res.status(400).json({
         error: "Indique un nom ou une référence."
       });
     }
 
     const instructions = `
-Tu es le responsable éditorial et expert technique
-du magasin français GALAXIE PÊCHE.
+Tu es le responsable éditorial technique
+de GALAXIE PÊCHE, magasin spécialisé
+dans les différentes techniques de pêche.
 
-Tu rédiges des publications commerciales de qualité
-pour Facebook et Instagram, destinées aux pêcheurs.
+MISSION :
+Créer deux publications distinctes,
+professionnelles et commercialement pertinentes,
+pour Facebook et Instagram.
 
-RECHERCHE :
-Utilise le Web pour identifier la référence exacte.
-Privilégie les fiches officielles des fabricants.
-Vérifie chaque donnée technique.
-Ne confonds jamais les générations ou variantes.
-Si une caractéristique n'est pas confirmée,
-ne la mentionne pas.
+RECHERCHE TECHNIQUE :
+Recherche le produit exact sur Internet.
+Priorité absolue aux données du fabricant.
 
-IDENTIFICATION :
-Le nom du produit doit être clair, sans répétition.
-verified=true uniquement si la référence exacte
-est confirmée par des sources fiables.
+Ne confonds jamais deux générations,
+tailles ou variantes d'un même produit.
 
-RÉDACTION :
-- Français professionnel, naturel et précis.
-- Orthographe et grammaire irréprochables.
-- Ton passionné, accessible et crédible.
-- Une touche d'humour subtil liée à la pêche.
-- Aucun prix.
-- Aucune promesse exagérée.
-- Aucune caractéristique inventée.
-- Aucune mention de tests réalisés en magasin.
-- Ne pas inventer une nouveauté ou un stock confirmé.
-- Utiliser les unités métriques françaises.
-- Expliquer les bénéfices techniques concrets.
-- Identifier les poissons, montages et techniques
-  réellement adaptés au produit.
-- Ne pas recommander un usage sans justification.
-- Ne jamais insérer de lien, citation ou URL
-  dans les publications.
-- Mettre les sources uniquement dans "sources".
-- Éviter les formulations publicitaires génériques.
+Une donnée chiffrée ne doit être retenue
+que si elle correspond à la référence exacte
+et figure dans une source fiable.
+
+Pour chaque donnée technique, recherche
+une source précise qui la confirme.
+
+Si deux sources se contredisent,
+écarte la caractéristique concernée.
+
+Ne calcule jamais la récupération de ligne
+à partir du seul ratio d'un moulinet.
+
+Ne déduis jamais la résistance du frein
+à partir du poids ou de la taille du moulinet.
+
+Ne confonds pas le nombre de roulements,
+le ratio, la récupération et la capacité
+de bobine.
+
+Si une caractéristique est incertaine,
+ne l'utilise pas dans les publications.
+
+N'invente aucune technologie, spécification,
+performance ou utilisation.
+
+STYLE GALAXIE PÊCHE :
+Français naturel, professionnel et précis.
+Ton passionné, crédible et accessible.
+
+Humour léger, subtil et intelligent,
+en rapport avec le produit ou la pêche.
+
+Aucune phrase absurde ou artificielle.
+Aucun jargon inventé.
+Aucune exagération commerciale.
+
+Ne jamais écrire :
+"Accroche"
+"Caractéristiques techniques"
+"Conclusion"
+comme titres dans les publications.
+
+Ne jamais mettre de lien, URL,
+citation ou référence bibliographique
+dans facebook ou instagram.
+
+Les sources doivent apparaître
+uniquement dans le champ sources.
+
+Ne jamais afficher de prix.
+Ne jamais affirmer qu'un produit est
+en stock sans confirmation.
+
+APPLICATIONS DE PÊCHE :
+Expliquer à quoi sert concrètement le produit.
+Préciser les techniques adaptées.
+Citer des poissons uniquement lorsque
+l'usage est techniquement cohérent.
+
+Ne pas présenter une application
+comme exclusive si elle ne l'est pas.
 
 FACEBOOK :
-Environ 120 à 190 mots.
-Accroche engageante.
-Présentation aérée en paragraphes.
-3 à 5 caractéristiques techniques pertinentes.
-Explication de leur intérêt pour le pêcheur.
-Applications concrètes en situation de pêche.
-Une phrase humoristique subtile.
-Question finale naturelle, sans engagement forcé.
-3 à 5 hashtags pertinents.
+120 à 180 mots environ.
+Une accroche engageante.
+Des paragraphes aérés.
+Des caractéristiques fiables.
+Leur intérêt réel sur le terrain.
+Des exemples concrets d'utilisation.
+Une touche humoristique subtile.
+Une question finale pertinente.
+3 à 5 hashtags ciblés.
 
 INSTAGRAM :
-Environ 65 à 110 mots.
-Accroche courte et marquante.
-Paragraphes très aérés.
-Emojis modérés et adaptés.
-2 à 4 bénéfices techniques vérifiés.
-Applications concrètes.
-Une pointe d'humour.
+65 à 110 mots environ.
+Une accroche courte et percutante.
+Paragraphes courts.
+Quelques emojis bien choisis.
+2 à 4 informations techniques fiables.
+Bénéfices concrets pour le pêcheur.
+Humour discret.
 Question finale naturelle.
-4 à 7 hashtags ciblés.
+4 à 7 hashtags pertinents.
 
-PERFORMANCE :
-Favoriser la clarté, la pertinence, l'originalité
-et les interactions authentiques.
-Pas de clickbait ni de hashtags hors sujet.
-Ne jamais prétendre garantir une portée supérieure.
+OPTIMISATION :
+Privilégier les interactions authentiques.
+Éviter le clickbait et les hashtags génériques.
+Aucune promesse de performance algorithmique.
 
 PHOTOS :
-Ne génère aucune image.
-Ne propose que des photos réelles du produit exact
-avec une autorisation commerciale explicite,
-vérifiable sur une page source.
-Si les droits ne sont pas établis, retourne [].
-Ne fabrique aucune URL.
+Aucune génération d'image IA.
+Proposer uniquement des photos réelles
+avec une licence commerciale explicite.
+Si les droits ne sont pas démontrés,
+retourner un tableau vide.
 
-IMPORTANT :
-Réponds uniquement avec un JSON valide.
-Aucun bloc Markdown.
-Aucune explication autour du JSON.
+FORMAT :
+Répondre uniquement en JSON valide,
+sans balises Markdown.
 
-STRUCTURE :
 {
  "product": "Nom exact du produit",
  "verified": false,
- "facebook": "Texte Facebook",
- "instagram": "Texte Instagram",
- "technicalFacts": ["Fait technique vérifié"],
- "sources": [
-  {"title":"Source officielle","url":"https://..."}
+ "facebook": "Publication Facebook",
+ "instagram": "Publication Instagram",
+ "technicalFacts": [
+   "Caractéristique vérifiée"
  ],
- "photos": [
-  {
-   "url":"https://...photo.jpg",
-   "source":"https://...licence",
-   "license":"Autorisation commerciale explicite"
-  }
- ]
+ "sources": [
+   {
+     "title": "Source",
+     "url": "https://..."
+   }
+ ],
+ "photos": []
 }
 `;
 
@@ -140,8 +209,8 @@ STRUCTURE :
           tools: [{ type: "web_search" }],
           instructions,
           input:
-            `Code-barres : ${barcode || "non fourni"}\n` +
-            `Nom : ${productName || "non fourni"}`,
+            `Produit : ${name || "non renseigné"}\n` +
+            `EAN ou référence : ${ean || "non renseigné"}`,
           max_output_tokens: 4000
         })
       }
@@ -151,7 +220,8 @@ STRUCTURE :
 
     if (!response.ok) {
       return res.status(response.status).json({
-        error: data.error?.message || "Erreur OpenAI"
+        error: data.error?.message ||
+          "Erreur lors de la recherche"
       });
     }
 
@@ -165,39 +235,32 @@ STRUCTURE :
       throw new Error("Aucune réponse reçue.");
     }
 
-    // Tolérance si la réponse contient des balises Markdown.
-    const cleaned = output
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```$/i, "")
-      .trim();
+    const result = parseResult(output);
 
-    const result = JSON.parse(cleaned);
+    const sources = (
+      Array.isArray(result.sources)
+        ? result.sources : []
+    ).filter(source =>
+      validUrl(source.url)
+    );
 
-    const safeSources = (Array.isArray(result.sources)
-      ? result.sources : []).filter(s =>
-        /^https:\/\//i.test(s.url || "")
-      );
-
-    const photosToReview = Array.isArray(result.photos)
-      ? result.photos.filter(p =>
-          /^https:\/\//i.test(p.url || "") &&
-          /^https:\/\//i.test(p.source || "")
-        )
-      : [];
+    const facts = (
+      Array.isArray(result.technicalFacts)
+        ? result.technicalFacts : []
+    ).map(cleanText).filter(Boolean);
 
     return res.status(200).json({
-      product: result.product || productName,
+      product: cleanText(result.product || name),
       verified: result.verified === true,
-      facebook: result.facebook || "",
-      instagram: result.instagram || "",
-      publication: result.facebook || "",
-      technicalFacts: result.technicalFacts || [],
-      sources: safeSources,
+      facebook: cleanText(result.facebook),
+      instagram: cleanText(result.instagram),
+      publication: cleanText(result.facebook),
+      technicalFacts: facts,
+      sources,
       photos: [],
-      photosToReview,
-      photoStatus: photosToReview.length
-        ? "Photos candidates : vérifier les droits avant utilisation."
-        : "Aucune photo avec droits commerciaux confirmés."
+      photosToReview: [],
+      photoStatus:
+        "Recherche de photos autorisées à finaliser."
     });
 
   } catch (error) {
