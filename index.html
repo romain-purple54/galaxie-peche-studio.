@@ -56,7 +56,7 @@ a{color:#c69aff;overflow-wrap:anywhere}
 <input id="ean" placeholder="Ex. 1234567890123">
 
 <label for="name">Nom du produit</label>
-<input id="name" placeholder="Ex. Shimano Stella FK">
+<input id="name" placeholder="Ex. Purple Products Equinoxx">
 
 <button id="searchVariants" type="button">
 Rechercher les modèles disponibles
@@ -67,11 +67,11 @@ Rechercher les modèles disponibles
 
 <div id="variantCard" class="card hidden">
 <h2>Choisir la référence exacte</h2>
-<p>Sélectionne le modèle correspondant à ton produit.</p>
+<p>Sélectionne le produit correspondant.</p>
 <div id="variantList"></div>
 
 <label for="manualVariant">Ou saisir une référence précise</label>
-<input id="manualVariant" placeholder="Ex. STELLA 2500S FK">
+<input id="manualVariant" placeholder="Ex. Purple Products Bouillettes Equinoxx 20 mm">
 
 <button id="generate" type="button">
 Créer les publications
@@ -194,7 +194,6 @@ function showVariants(items){
   label.append(radio,details);
   container.appendChild(label);
  });
-
 }
 
 $("searchVariants").onclick=async()=>{
@@ -238,7 +237,7 @@ $("searchVariants").onclick=async()=>{
 
   $("status").textContent=variants.length
    ?variants.length+" variante(s) trouvée(s). Sélectionne la bonne référence."
-   :"Aucune variante confirmée automatiquement. Saisis la référence exacte si tu la connais.";
+   :"Aucune variante confirmée automatiquement. Saisis le nom exact du produit si tu le connais.";
 
  }catch(error){
   $("status").textContent="Erreur : "+error.message;
@@ -257,11 +256,17 @@ $("generate").onclick=async()=>{
 
  if(!variante&&selected){
   const item=variants[Number(selected.value)];
-  variante=item.reference||item.nom||"";
+
+  variante=[
+   item.nom,
+   item.reference
+    ?"Référence fabricant : "+item.reference
+    :""
+  ].filter(Boolean).join(" — ");
  }
 
  if(!variante){
-  $("status").textContent="Sélectionne ou saisis une référence exacte.";
+  $("status").textContent="Sélectionne ou saisis le nom exact du produit.";
   return;
  }
 
@@ -269,7 +274,7 @@ $("generate").onclick=async()=>{
   $("name").value.trim()!==searchedName ||
   $("ean").value.trim()!==searchedEan
  ){
-  $("status").textContent="Le produit a changé. Relance la recherche des modèles.";
+  $("status").textContent="Le produit a changé. Relance la recherche.";
   return;
  }
 
@@ -296,6 +301,7 @@ $("generate").onclick=async()=>{
    facebook:data.facebook||"",
    instagram:data.instagram||""
   };
+
   active="facebook";
   $("publication").value=posts.facebook;
   $("facebookTab").classList.add("active");
@@ -313,6 +319,7 @@ $("generate").onclick=async()=>{
   $("warnings").textContent=data.avertissement||"";
 
   $("facts").replaceChildren();
+
   for(const fact of data.caracteristiques||[]){
    const li=document.createElement("li");
    li.textContent=typeof fact==="string"?fact:fact.texte||"";
@@ -322,6 +329,7 @@ $("generate").onclick=async()=>{
   addLinks($("sources"),data.sources||[]);
 
   const uploaded=$("photo").files[0];
+
   if(uploaded){
    $("selectedPhoto").src=URL.createObjectURL(uploaded);
    $("selectedPhoto").hidden=false;
@@ -333,6 +341,7 @@ $("generate").onclick=async()=>{
   }
 
   $("results").classList.remove("hidden");
+
   $("status").textContent=posts.facebook||posts.instagram
    ?"Publications prêtes !"
    :"Référence ou données techniques insuffisamment confirmées. Consulte les avertissements.";
