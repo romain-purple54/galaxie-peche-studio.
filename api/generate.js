@@ -132,9 +132,6 @@ N'ajoute aucune donnée non vérifiée.
           input:
             `Code-barres : ${barcode || "non fourni"}\n` +
             `Nom : ${productName || "non fourni"}`,
-          text: {
-            format: { type: "json_object" }
-          },
           max_output_tokens: 3500
         })
       }
