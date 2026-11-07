@@ -52,6 +52,7 @@ function extraireSources(data) {
 
   function ajouter(url, titre) {
     const lien = urlSure(url);
+
     if (lien && !sources.has(lien)) {
       sources.set(lien, {
         url: lien,
@@ -101,6 +102,88 @@ async function demanderOpenAI(apiKey, payload) {
   return data;
 }
 
+async function detecterVariantes(apiKey, recherche) {
+  const resultat = await demanderOpenAI(apiKey, {
+    model: "gpt-4.1-mini",
+    tools: [{
+      type: "web_search_preview",
+      search_context_size: "medium"
+    }],
+    input: `
+Tu identifies les variantes d'un produit de pêche.
+
+PRODUIT :
+${recherche}
+
+Recherche en priorité sur le site du fabricant.
+
+Identifie les références exactes appartenant
+à la même famille et à la même génération.
+
+Ne mélange pas différentes générations.
+N'invente aucune référence.
+
+Présente :
+- nom exact ;
+- référence fabricant ;
+- différences entre variantes ;
+- sources consultées.
+
+Si la recherche correspond déjà à une
+référence précise, signale-le.
+
+Ne rédige aucune publication.
+`,
+    max_output_tokens: 900
+  });
+
+  const rapport = lireTexte(resultat);
+
+  const analyse = await demanderOpenAI(apiKey, {
+    model: "gpt-4.1-mini",
+    instructions: `
+Tu extrais les variantes documentées.
+
+Ne crée aucune variante.
+Ne confonds pas taille, génération et ratio.
+
+Réponds uniquement en JSON :
+
+{
+  "variantes": [
+    {
+      "nom": "nom exact",
+      "reference": "référence fabricant",
+      "description": "différence technique courte"
+    }
+  ],
+  "ambiguite": false
+}
+`,
+    input: rapport,
+    max_output_tokens: 800
+  });
+
+  const fiche = lireJSON(lireTexte(analyse));
+
+  const variantes = Array.isArray(fiche.variantes)
+    ? fiche.variantes
+        .filter(v => v && v.nom)
+        .slice(0, 12)
+        .map(v => ({
+          nom: String(v.nom).slice(0, 150),
+          reference: String(v.reference || "").slice(0, 100),
+          description: String(v.description || "").slice(0, 200)
+        }))
+    : [];
+
+  return {
+    variantes,
+    ambiguite: fiche.ambiguite === true,
+    sources: extraireSources(resultat)
+  };
+}
+
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
 
@@ -129,15 +212,42 @@ export default async function handler(req, res) {
       body.ean || body.barcode || ""
     ).trim().slice(0, 100);
 
+    const variante = String(
+      body.variante || ""
+    ).trim().slice(0, 200);
+
     if (!nom && !ean) {
       return res.status(400).json({
         error: "Indique un nom ou un code-barres."
       });
     }
 
-    const produitRecherche = [nom, ean]
+    const produitInitial = [nom, ean]
       .filter(Boolean)
       .join(" | ");
+
+    // MODE DÉTECTION DES VARIANTES
+    // Activé par la future interface index.html.
+
+    if (body.action === "variantes") {
+      const resultat = await detecterVariantes(
+        apiKey,
+        produitInitial
+      );
+
+      return res.status(200).json({
+        selection_variante: true,
+        ...resultat
+      });
+    }
+
+    // MODE GÉNÉRATION
+    // Compatible avec l'interface actuelle.
+
+    const produitRecherche = [
+      variante || nom,
+      ean
+    ].filter(Boolean).join(" | ");
 
     // ÉTAPE 1 : RECHERCHE DOCUMENTAIRE
 
@@ -152,25 +262,35 @@ export default async function handler(req, res) {
 Recherche la fiche technique exacte de ce produit :
 ${produitRecherche}
 
-Priorité au site officiel du fabricant.
+Priorité absolue au site officiel du fabricant.
 
 Identifie :
-- le nom commercial exact ;
-- la référence fabricant ;
-- les caractéristiques techniques ;
-- les techniques de pêche adaptées.
+- nom commercial exact ;
+- référence fabricant exacte ;
+- taille et génération ;
+- ratio et version éventuelle (HG, XG, PG...) ;
+- caractéristiques techniques ;
+- techniques de pêche adaptées.
 
-Attention aux variantes, générations et tailles.
+RÈGLE ESSENTIELLE :
+Une version 2500 n'est pas automatiquement
+une version 2500 HG ou 2500 XG.
 
-Pour chaque caractéristique, indique sa source.
+Ne transfère jamais une caractéristique
+d'une variante vers une autre.
+
+Si la variante exacte n'est pas confirmée,
+indique clairement l'ambiguïté.
+
+Pour chaque caractéristique, donne sa source.
+
 Ne considère pas une donnée comme vérifiée
-si elle n'est pas explicitement confirmée.
+sans confirmation explicite.
 
 Présente un rapport documentaire structuré.
-Indique les incertitudes.
 Ne rédige aucune publication commerciale.
 `,
-      max_output_tokens: 1800
+      max_output_tokens: 1900
     });
 
     const rapport = lireTexte(recherche);
@@ -180,30 +300,33 @@ Ne rédige aucune publication commerciale.
       throw new Error("Recherche documentaire vide.");
     }
 
-    // ÉTAPE 2 : EXTRACTION ET CONTRÔLE
+    // ÉTAPE 2 : CONTRÔLE TECHNIQUE
 
     const analyse = await demanderOpenAI(apiKey, {
       model: "gpt-4.1-mini",
       instructions: `
-Tu es un contrôleur technique spécialisé
-dans le matériel de pêche.
+Tu es contrôleur technique de matériel de pêche.
 
-Tu analyses exclusivement le rapport fourni.
-
+Analyse exclusivement le rapport fourni.
 N'invente aucune information.
-Ne complète pas les lacunes par tes connaissances.
 
-Une caractéristique est confirmée uniquement
-si le rapport donne une preuve explicite
-et une source identifiable.
+Une caractéristique n'est confirmée que si
+elle concerne exactement la référence recherchée
+et possède une source identifiable.
 
-En cas de contradiction ou d'ambiguïté :
-exclus la caractéristique.
+Ne confonds jamais :
+- 2500 et 2500 HG ;
+- HG et XG ;
+- différentes générations ;
+- différentes tailles ;
+- différentes références fabricant.
 
-Le nom et la référence doivent correspondre
-exactement à la variante recherchée.
+Si la variante recherchée est ambiguë,
+identification_confirmee doit être false.
 
-Réponds uniquement avec un objet JSON valide :
+Exclus les caractéristiques contradictoires.
+
+Réponds uniquement avec un JSON valide :
 
 {
   "produit": "nom exact ou chaîne vide",
@@ -211,7 +334,7 @@ Réponds uniquement avec un objet JSON valide :
   "identification_confirmee": false,
   "caracteristiques": [
     {
-      "texte": "caractéristique",
+      "texte": "caractéristique exacte",
       "source_url": "https://..."
     }
   ],
@@ -227,13 +350,13 @@ Réponds uniquement avec un objet JSON valide :
 PRODUIT RECHERCHÉ :
 ${produitRecherche}
 
-RAPPORT DOCUMENTAIRE :
+RAPPORT :
 ${rapport}
 
-SOURCES REPÉRÉES :
+SOURCES :
 ${JSON.stringify(sourcesRecherche)}
 `,
-      max_output_tokens: 1400
+      max_output_tokens: 1500
     });
 
     const fiche = lireJSON(lireTexte(analyse));
@@ -273,17 +396,19 @@ ${JSON.stringify(sourcesRecherche)}
       ? fiche.incertitudes.map(nettoyer).filter(Boolean)
       : [];
 
-    const identifie = fiche.identification_confirmee === true;
+    const identifie =
+      fiche.identification_confirmee === true &&
+      Boolean(String(fiche.reference || "").trim());
 
     const produit = identifie
-      ? String(fiche.produit || nom || ean)
-      : String(nom || ean);
+      ? String(fiche.produit || variante || nom || ean)
+      : String(variante || nom || ean);
 
     const reference = identifie
       ? String(fiche.reference || "")
       : "";
 
-    // ÉTAPE 3 : RÉDACTION COMMERCIALE
+    // ÉTAPE 3 : PUBLICATIONS
 
     let facebook = "";
     let instagram = "";
@@ -295,38 +420,35 @@ ${JSON.stringify(sourcesRecherche)}
 Tu rédiges pour GALAXIE PÊCHE,
 magasin spécialisé dans les articles de pêche.
 
-Objectif :
-deux publications commerciales distinctes.
+Produis deux publications commerciales distinctes.
 
 STYLE :
 - Professionnel et techniquement exact.
-- Ton naturel, dynamique et accessible.
+- Naturel, dynamique, accessible.
 - Une pointe d'humour subtile.
-- Accroche : "NOUVEAUTÉ EN STOCK".
-- Pas de prix.
-- Pas de promotions inventées.
-- Pas de liens ni de citations.
-- Pas de rubriques artificielles.
-- Pas de caractéristiques non fournies.
-- Pas de promesses exagérées.
-- Ne confonds pas les techniques de pêche.
+- Commence par "NOUVEAUTÉ EN STOCK".
+- Aucun prix.
+- Aucune promotion inventée.
+- Aucun lien ou citation.
+- Aucune rubrique artificielle.
+- Aucun chiffre non fourni.
+- Aucun mélange entre variantes.
+
+Explique concrètement à quels types
+de pêcheurs et de techniques le produit convient.
 
 FACEBOOK :
 120 à 170 mots environ.
 Paragraphes aérés.
-Bénéfices concrets pour les pêcheurs.
+Avantages concrets.
 Question finale pertinente.
 Quelques emojis.
 
 INSTAGRAM :
 65 à 100 mots environ.
-Accroche efficace.
-Texte court et rythmé.
+Accroche dynamique.
 3 à 5 hashtags pertinents.
 Question finale.
-
-Utilise UNIQUEMENT les données fournies.
-Ne crée aucun chiffre supplémentaire.
 
 Réponds uniquement avec ce JSON :
 
@@ -354,7 +476,7 @@ Réponds uniquement avec ce JSON :
 
     if (!identifie) {
       avertissements.unshift(
-        "Référence exacte non confirmée."
+        "Référence exacte non confirmée. Sélectionnez la variante précise avant publication."
       );
     }
 
