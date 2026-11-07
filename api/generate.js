@@ -22,99 +22,109 @@ export default async function handler(req, res) {
 
     if (!barcode && !productName) {
       return res.status(400).json({
-        error: "Indique un code-barres ou un nom de produit."
+        error: "Indique un nom ou une référence."
       });
     }
 
     const instructions = `
-Tu es le rédacteur technique de GALAXIE PÊCHE,
-un magasin français spécialisé dans la pêche.
+Tu es le responsable éditorial et expert technique
+du magasin français GALAXIE PÊCHE.
 
-MISSION :
-Identifier précisément le produit à partir de son
-nom, de sa référence ou de son code-barres.
+Tu rédiges des publications commerciales de qualité
+pour Facebook et Instagram, destinées aux pêcheurs.
 
-Utilise la recherche Web pour consulter en priorité
-les sites officiels des fabricants et les notices.
+RECHERCHE :
+Utilise le Web pour identifier la référence exacte.
+Privilégie les fiches officielles des fabricants.
+Vérifie chaque donnée technique.
+Ne confonds jamais les générations ou variantes.
+Si une caractéristique n'est pas confirmée,
+ne la mentionne pas.
 
-Vérifie le modèle, sa génération et sa variante.
-Ne confonds jamais deux références proches.
+IDENTIFICATION :
+Le nom du produit doit être clair, sans répétition.
+verified=true uniquement si la référence exacte
+est confirmée par des sources fiables.
 
-RÈGLES TECHNIQUES :
-- N'invente aucune caractéristique.
-- Ne déduis pas un poids, un ratio, un frein,
-  une longueur ou une technologie non confirmés.
-- Explique les avantages techniques concrets.
-- Relie le produit aux pratiques de pêche adaptées.
-- Distingue les faits des conseils d'utilisation.
-- Si le modèle reste incertain, indique-le clairement.
-- Ne mentionne jamais de prix.
-
-STYLE :
-Professionnel, précis, passionné et accessible.
-Ajoute une pointe d'humour subtil lié à la pêche.
-Évite les exagérations et les promesses irréalistes.
-Ne présente pas un produit comme testé en magasin
-si aucune information ne le confirme.
+RÉDACTION :
+- Français professionnel, naturel et précis.
+- Orthographe et grammaire irréprochables.
+- Ton passionné, accessible et crédible.
+- Une touche d'humour subtil liée à la pêche.
+- Aucun prix.
+- Aucune promesse exagérée.
+- Aucune caractéristique inventée.
+- Aucune mention de tests réalisés en magasin.
+- Ne pas inventer une nouveauté ou un stock confirmé.
+- Utiliser les unités métriques françaises.
+- Expliquer les bénéfices techniques concrets.
+- Identifier les poissons, montages et techniques
+  réellement adaptés au produit.
+- Ne pas recommander un usage sans justification.
+- Ne jamais insérer de lien, citation ou URL
+  dans les publications.
+- Mettre les sources uniquement dans "sources".
+- Éviter les formulations publicitaires génériques.
 
 FACEBOOK :
-Rédige une publication développée avec :
-- Une accroche forte.
-- Les caractéristiques techniques vérifiées.
-- Les bénéfices pour le pêcheur.
-- Les techniques de pêche adaptées.
-- Une touche d'humour.
-- Une question finale naturelle.
-- La mention GALAXIE PÊCHE.
-- Quelques hashtags pertinents.
+Environ 120 à 190 mots.
+Accroche engageante.
+Présentation aérée en paragraphes.
+3 à 5 caractéristiques techniques pertinentes.
+Explication de leur intérêt pour le pêcheur.
+Applications concrètes en situation de pêche.
+Une phrase humoristique subtile.
+Question finale naturelle, sans engagement forcé.
+3 à 5 hashtags pertinents.
 
 INSTAGRAM :
-Rédige une publication différente avec :
-- Une accroche courte et engageante.
-- Des paragraphes aérés.
-- Les principaux bénéfices du produit.
-- Des emojis utilisés avec modération.
-- Une question ou invitation à commenter.
-- Des hashtags spécifiques à la pêche.
+Environ 65 à 110 mots.
+Accroche courte et marquante.
+Paragraphes très aérés.
+Emojis modérés et adaptés.
+2 à 4 bénéfices techniques vérifiés.
+Applications concrètes.
+Une pointe d'humour.
+Question finale naturelle.
+4 à 7 hashtags ciblés.
+
+PERFORMANCE :
+Favoriser la clarté, la pertinence, l'originalité
+et les interactions authentiques.
+Pas de clickbait ni de hashtags hors sujet.
+Ne jamais prétendre garantir une portée supérieure.
 
 PHOTOS :
-Recherche des photos réelles du modèle exact.
-Une photo visible sur Internet n'est pas forcément
-autorisée pour une utilisation commerciale.
+Ne génère aucune image.
+Ne propose que des photos réelles du produit exact
+avec une autorisation commerciale explicite,
+vérifiable sur une page source.
+Si les droits ne sont pas établis, retourne [].
+Ne fabrique aucune URL.
 
-Ne propose une image que si une licence explicite
-ou une autorisation commerciale vérifiable existe.
-Sinon, retourne un tableau vide.
-Ne fabrique jamais d'URL d'image.
-Ne génère aucune illustration IA.
+IMPORTANT :
+Réponds uniquement avec un JSON valide.
+Aucun bloc Markdown.
+Aucune explication autour du JSON.
 
-Réponds uniquement avec un objet JSON valide :
+STRUCTURE :
 {
- "product": "Nom exact du produit ou référence incertaine",
+ "product": "Nom exact du produit",
  "verified": false,
- "facebook": "Publication Facebook",
- "instagram": "Publication Instagram",
- "technicalFacts": [
-   "Caractéristique vérifiée"
- ],
+ "facebook": "Texte Facebook",
+ "instagram": "Texte Instagram",
+ "technicalFacts": ["Fait technique vérifié"],
  "sources": [
-   {
-     "title": "Nom de la source",
-     "url": "https://..."
-   }
+  {"title":"Source officielle","url":"https://..."}
  ],
  "photos": [
-   {
-     "url": "https://...image.jpg",
-     "source": "https://...page-source",
-     "license": "Autorisation commerciale explicite"
-   }
+  {
+   "url":"https://...photo.jpg",
+   "source":"https://...licence",
+   "license":"Autorisation commerciale explicite"
+  }
  ]
 }
-
-La valeur verified est true uniquement lorsque
-l'identification précise est confirmée.
-N'ajoute aucune donnée non vérifiée.
 `;
 
     const response = await fetch(
@@ -122,7 +132,7 @@ N'ajoute aucune donnée non vérifiée.
       {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${key}`,
+          Authorization: `Bearer ${key}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
@@ -132,7 +142,7 @@ N'ajoute aucune donnée non vérifiée.
           input:
             `Code-barres : ${barcode || "non fourni"}\n` +
             `Nom : ${productName || "non fourni"}`,
-          max_output_tokens: 3500
+          max_output_tokens: 4000
         })
       }
     );
@@ -141,8 +151,7 @@ N'ajoute aucune donnée non vérifiée.
 
     if (!response.ok) {
       return res.status(response.status).json({
-        error: data.error?.message ||
-          "Erreur lors de la recherche OpenAI"
+        error: data.error?.message || "Erreur OpenAI"
       });
     }
 
@@ -153,21 +162,28 @@ N'ajoute aucune donnée non vérifiée.
       .join("");
 
     if (!output) {
-      throw new Error("Aucun texte reçu d'OpenAI.");
+      throw new Error("Aucune réponse reçue.");
     }
 
-    const result = JSON.parse(output);
+    // Tolérance si la réponse contient des balises Markdown.
+    const cleaned = output
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+
+    const result = JSON.parse(cleaned);
 
     const safeSources = (Array.isArray(result.sources)
       ? result.sources : []).filter(s =>
         /^https:\/\//i.test(s.url || "")
       );
 
-    // Les images doivent être contrôlées avant
-    // leur réutilisation commerciale.
-    // On ne publie aucune URL photo automatiquement.
     const photosToReview = Array.isArray(result.photos)
-      ? result.photos : [];
+      ? result.photos.filter(p =>
+          /^https:\/\//i.test(p.url || "") &&
+          /^https:\/\//i.test(p.source || "")
+        )
+      : [];
 
     return res.status(200).json({
       product: result.product || productName,
@@ -180,8 +196,8 @@ N'ajoute aucune donnée non vérifiée.
       photos: [],
       photosToReview,
       photoStatus: photosToReview.length
-        ? "Photos candidates à vérifier avant utilisation"
-        : "Aucune photo autorisée confirmée"
+        ? "Photos candidates : vérifier les droits avant utilisation."
+        : "Aucune photo avec droits commerciaux confirmés."
     });
 
   } catch (error) {
