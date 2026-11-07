@@ -1,0 +1,131 @@
+
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GALAXIE PÊCHE Studio</title>
+<style>
+body{margin:0;background:#101018;color:white;font:16px system-ui}
+main{max-width:700px;margin:auto;padding:20px}
+h1{color:#c39bff}
+label{display:block;margin:18px 0 7px}
+input,textarea,button{box-sizing:border-box;width:100%;padding:13px;border-radius:10px;border:1px solid #555;background:#242430;color:white;font:inherit}
+button{background:#753cc8;border:0;margin-top:15px;font-weight:bold;cursor:pointer}
+button:disabled{opacity:.5}
+textarea{min-height:250px}
+img{max-width:100%;border-radius:12px;margin-top:12px}
+small{color:#bbb}
+#status{white-space:pre-wrap}
+</style>
+</head>
+<body>
+<main>
+<h1>GALAXIE PÊCHE Studio</h1>
+<p>Création automatique de publications et visuels pour les réseaux sociaux.</p>
+
+<label>Photo du produit (facultative)</label>
+<input id="photo" type="file" accept="image/*">
+<img id="preview" hidden alt="Photo du produit">
+
+<label>Code-barres EAN ou référence</label>
+<input id="ean" placeholder="Code-barres ou référence">
+
+<label>Nom du produit</label>
+<input id="name" placeholder="Ex. Shimano Stella FK 2500">
+
+<button id="generate" type="button">Créer ma publication et mon visuel</button>
+<p id="status" aria-live="polite"></p>
+
+<label>Publication proposée</label>
+<textarea id="result" placeholder="La publication apparaîtra ici..."></textarea>
+<button id="copy" type="button">Copier la publication</button>
+
+<h2>Visuel de la publication</h2>
+<img id="visual" hidden alt="Visuel généré">
+<a id="download" hidden download="galaxie-peche.png">
+<button type="button">Télécharger le visuel</button>
+</a>
+
+<p><small>Les illustrations IA ne constituent pas des photographies officielles. Aucun prix n'est ajouté.</small></p>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+
+$('photo').onchange=()=>{
+ const f=$('photo').files[0];
+ if(f){
+  $('preview').src=URL.createObjectURL(f);
+  $('preview').hidden=false;
+ }
+};
+
+$('generate').onclick=async()=>{
+ const btn=$('generate');
+ btn.disabled=true;
+ $('status').textContent='Création en cours...';
+ $('visual').hidden=true;
+ $('download').hidden=true;
+ try{
+  const payload={
+   ean:$('ean').value.trim(),
+   name:$('name').value.trim()
+  };
+  if(!payload.ean&&!payload.name)
+   throw Error('Indique un nom ou une référence.');
+
+  const r=await fetch('/api/generate',{
+   method:'POST',
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify(payload)
+  });
+  const j=await r.json();
+  if(!r.ok)throw Error(j.error||'Erreur de génération');
+  $('result').value=j.publication||'';
+
+  $('status').textContent='Publication créée. Préparation du visuel...';
+
+  const file=$('photo').files[0];
+  let imageData=null;
+  if(file){
+   imageData=await new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(reader.result);
+    reader.onerror=()=>reject(Error('Lecture photo impossible'));
+    reader.readAsDataURL(file);
+   });
+  }
+
+  const vr=await fetch('/api/visual',{
+   method:'POST',
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({...payload,imageData})
+  });
+  const v=await vr.json();
+  if(!vr.ok)throw Error(v.error||'Erreur de création du visuel');
+  if(!v.image)throw Error('Aucune image reçue');
+
+  $('visual').src=v.image;
+  $('visual').hidden=false;
+  $('download').href=v.image;
+  $('download').hidden=false;
+  $('status').textContent='Publication et visuel prêts !';
+ }catch(e){
+  $('status').textContent=e.message;
+ }finally{
+  btn.disabled=false;
+ }
+};
+
+$('copy').onclick=async()=>{
+ try{
+  await navigator.clipboard.writeText($('result').value);
+  $('status').textContent='Publication copiée !';
+ }catch(e){
+  $('status').textContent='Copie impossible sur ce navigateur.';
+ }
+};
+</script>
+</body>
+</html>
